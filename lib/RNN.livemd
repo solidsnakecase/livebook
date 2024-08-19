@@ -1,0 +1,76 @@
+# Recurrent Neural Networks
+
+```elixir
+Mix.install([
+  {:scidata, "~> 0.1"},
+  {:axon, "~> 0.5"},
+  {:exla, "~> 0.6"},
+  {:nx, "~> 0.6"},
+  {:table_rex, "~> 3.1.1"},
+  {:kino, "~> 0.7"}
+])
+```
+
+## Main
+
+```elixir
+Nx.default_backend(EXLA.Backend)
+```
+
+```elixir
+# Download Data
+data = Scidata.IMDBReviews.download()
+```
+
+```elixir
+# Split Data
+{train_data, test_data} =
+  data.review
+  |> Enum.zip(data.sentiment)
+  |> Enum.shuffle()
+  |> Enum.split(23_000)
+```
+
+```elixir
+# Tokenization and Vectorization into Sparse Representation
+frequencies =
+  Enum.reduce(train_data, %{}, fn {review, _}, tokens ->
+    review
+    |> String.downcase()
+    |> String.replace(~r/[\p{P}\p{S}]/, "")
+    |> String.split()
+    |> Enum.reduce(tokens, &Map.update(&2, &1, 1, fn x -> x + 1 end))
+  end)
+```
+
+```elixir
+num_tokens = 1024
+
+review = "The Departed is Martin Scorsese's best work, and anybody who disagrees is wrong. This movie is amazing."
+
+unknown_token = 0
+
+tokens =
+  frequencies
+  |> Enum.sort_by(&elem(&1, 1), :desc)
+  |> Enum.take(num_tokens)
+  |> Enum.with_index(fn {token, _}, i -> {token, i} end)
+  |> Map.new()
+```
+
+```elixir
+tokenize = fn review ->
+  review
+  |> String.downcase()
+  |> String.replace(~r/[\p{P}\p{S}]/, "")
+  |> String.split()
+  |> Enum.map(&Map.get(tokens, &1, unknown_token))
+  |> Nx.tensor()
+end
+
+tokenize.(review)
+```
+
+```elixir
+# 215
+```

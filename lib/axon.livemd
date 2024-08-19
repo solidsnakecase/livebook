@@ -1,0 +1,140 @@
+# Axon
+
+```elixir
+Mix.install([
+  {:axon, "~> 0.5"},
+  {:nx, "~> 0.5"},
+  {:exla, "~> 0.5"},
+  {:scidata, "~> 0.1"},
+  {:kino, "~> 0.8"},
+  {:table_rex, "3.1.1"}
+])
+```
+
+## Main
+
+```elixir
+# Setting Notebook Options
+Nx.default_backend(EXLA.Backend)
+```
+
+```elixir
+# Download MNIST
+{images, labels} = Scidata.MNIST.download()
+```
+
+```elixir
+# Data Shaping
+{image_data, image_type, image_shape} = images
+{label_data, label_type, label_shape} = labels
+
+images =
+  image_data
+  |> Nx.from_binary(image_type) # Transform into Tensor
+  |> Nx.divide(255) # Rescale data from 0-1
+  |> Nx.reshape({60000, :auto}) # Reshape all into vectors
+
+labels =
+  label_data
+  |> Nx.from_binary(label_type) # Transform into Tensor
+  |> Nx.reshape(label_shape) # Reshape into vectors
+  |> Nx.new_axis(-1) # One Hot Encoding
+  |> Nx.equal(Nx.iota({1, 10})) # Comparison to 0-9
+```
+
+```elixir
+# Split into Training/Testing Data
+train_range = 0..49_999//1
+test_range = 50_000..-1//1
+
+train_images = images[train_range]
+train_labels = labels[train_range]
+
+test_images = images[test_range]
+test_labels = labels[test_range]
+```
+
+```elixir
+# Transform Data into Minibatches
+batch_size = 64
+
+train_data =
+  train_images
+  |> Nx.to_batched(batch_size)
+  |> Stream.zip(Nx.to_batched(train_labels, batch_size))
+
+test_data =
+  test_images
+  |> Nx.to_batched(batch_size)
+  |> Stream.zip(Nx.to_batched(test_labels, batch_size))
+```
+
+```elixir
+# Building the Model
+model =
+  Axon.input("images", shape: {nil, 784})
+  |> Axon.dense(128, activation: :relu)
+  |> Axon.dense(10, activation: :softmax)
+```
+
+```elixir
+# Visualization
+template = Nx.template({1, 784}, :f32)
+
+Axon.Display.as_graph(model, template)
+```
+
+```elixir
+# Display as Table
+Axon.Display.as_table(model, template)
+|> IO.puts
+```
+
+```elixir
+# Further Inspection
+IO.inspect model, structs: false
+```
+
+```elixir
+# Model Inspection
+trained_model_state =
+  model
+  |> Axon.Loop.trainer(:categorical_cross_entropy, :sgd)
+  |> Axon.Loop.metric(:accuracy)
+  |> Axon.Loop.run(train_data, %{}, epochs: 10, compiler: EXLA)
+```
+
+```elixir
+# Model Evaluation
+model
+|> Axon.Loop.evaluator()
+|> Axon.Loop.metric(:accuracy)
+|> Axon.Loop.run(test_data, trained_model_state, compiler: EXLA)
+```
+
+```elixir
+# Model Execution
+{test_batch, _} = Enum.at(test_data, 0)
+
+test_image = test_batch[0]
+
+test_image
+|> Nx.reshape({28, 28})
+|> Nx.to_heatmap()
+```
+
+```elixir
+# # Prediction
+# probabilities =
+#   test_image
+#   |> Nx.new_axis(0)
+#   |> then(&predict_fn.(trained_model_state, &1))
+
+# {_, predict_fn} = Axon.build(model, compiler: EXLA)
+# predict_fn.(trained_model_state, test_image)
+
+```
+
+```elixir
+# probabilities |> Nx.argmax()
+```

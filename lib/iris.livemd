@@ -9,7 +9,7 @@ Mix.install([
 ])
 ```
 
-## Section
+## Main
 
 ```elixir
 require Explorer.DataFrame, as: DF

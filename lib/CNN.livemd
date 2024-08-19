@@ -1,0 +1,105 @@
+# Convolutional Neural Networks
+
+```elixir
+Mix.install([
+  {:axon, "~> 0.5"},
+  {:nx, "~> 0.5"},
+  {:exla, "~> 0.5"},
+  {:stb_image, "~> 0.6"},
+  {:kino, "~> 0.8"}
+])
+```
+
+## Main
+
+```elixir
+# Setup EXLA Backend
+Nx.global_default_backend(EXLA.Backend)
+```
+
+```elixir
+defmodule CatsAndDogs do
+
+  def pipeline(paths, batch_size, target_height, target_width) do
+    paths
+    |> Enum.shuffle()
+    |> Task.async_stream(&parse_image/1)
+    |> Stream.filter(fn
+      {:ok, {%StbImage{}, _}} -> true
+      _ -> false
+    end)
+    |> Stream.map(&to_tensors(&1, target_height, target_width))
+    |> Stream.chunk_every(batch_size, batch_size, :discard)
+    |> Stream.map(fn chunks ->
+      {img_chunk, label_chunk} = Enum.unzip(chunks)
+      {Nx.stack(img_chunk), Nx.stack(label_chunk)}
+    end)
+  end
+
+  defp parse_image(path) do
+    label = if String.contains?(path, "cat"), do: 0, else: 1
+
+    case StbImage.read_file(path) do
+      {:ok, img} -> {img, label}
+      _error -> :error
+    end
+  end
+
+  defp to_tensors({:ok, {img, label}}, target_height, target_width) do
+    img_tensor =
+      img
+      |> StbImage.resize(target_height, target_width)
+      |> StbImage.to_nx()
+      |> Nx.divide(255)
+    label_tensor = Nx.tensor([label])
+
+    {img_tensor, label_tensor}
+  end
+  
+end
+```
+
+```elixir
+{test_paths, train_paths} = 
+  Path.wildcard("<insert data here>")
+  |> Enum.shuffle()
+  |> Enum.split(1000)
+
+batch_size = 128
+target_height = 96
+target_width = 96
+
+train_pipeline = CatsAndDogs.pipeline(
+  train_paths, batch_size, target_height, target_width
+)
+test_pipeline = CatsAndDogs.pipeline(
+  test_paths, batch_size, target_height, target_width
+)
+
+Enum.take(train_pipeline, 1)
+```
+
+```elixir
+mlp_model =
+  Axon.input("images", shape: {nil, target_height, target_width, 3})
+  |> Axon.flatten()
+  |> Axon.dense(256, activation: :relu)
+  |> Axon.dense(128, activation: :relu)
+  |> Axon.dense(1, activation: :sigmoid)
+```
+
+```elixir
+mlp_trained_model_state =
+  mlp_model
+  |> Axon.Loop.trainer(:binary_cross_entropy, :adam)
+  |> Axon.Loop.metric(:accuracy)
+  |> Axon.Loop.run(train_pipeline, %{}, epochs: 5, compiler: EXLA)
+```
+
+```elixir
+# Evaluate Model
+mlp_model
+|> Axon.Loop.evaluator()
+|> Axon.Loop.metric(:accuracy)
+|> Axon.Loop.run(test_pipeline, mlp_trained_model_state, compiler: EXLA)
+```

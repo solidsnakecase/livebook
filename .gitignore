@@ -24,3 +24,6 @@ livebook-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# Sample Datasets
+/data/
